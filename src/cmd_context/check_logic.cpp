@@ -182,7 +182,7 @@ struct check_logic::imp {
             m_bvs         = true;
             m_quantifiers = true;
         }
-        else if (logic == "QF_S") {
+        else if (logic == "QF_S" || logic == "QF_SLIA") {
             m_uf          = true;
             m_bvs         = true;
             m_ints        = true;
@@ -215,6 +215,11 @@ struct check_logic::imp {
     struct failed {};
     std::string m_last_error;
 
+    void fail(std::string &&msg) {
+        m_last_error = std::move(msg);
+        throw failed();
+    }
+
     void fail(char const * msg) {
         m_last_error = msg;
         throw failed();
@@ -239,6 +244,10 @@ struct check_logic::imp {
         else if (m_bv_util.is_bv_sort(s)) {
             if (!m_bvs)
                 fail("logic does not support bitvectors");
+        }
+        else if (m_dt_util.is_datatype(s)) {
+            if (!m_dt) 
+                fail("logic does not support algebraic datatypes");
         }
         else if (m_ar_util.is_array(s)) {
             if (m_arrays) {
@@ -302,9 +311,8 @@ struct check_logic::imp {
     }
 
     // check if the divisor is a numeral
-    void check_div(app * n) {
-        SASSERT(n->get_num_args() == 2);
-        if (!m_nonlinear && !is_numeral(n->get_arg(1)))
+    void check_div(app * n) {        
+        if (n->get_num_args() != 2 || (!m_nonlinear && !is_numeral(n->get_arg(1))))
             fail("logic does not support nonlinear arithmetic");
     }
 
@@ -470,7 +478,7 @@ struct check_logic::imp {
         else {
             std::stringstream strm;
             strm << "logic does not support theory " << m.get_family_name(fid);
-            fail(strm.str().c_str());
+            fail(strm.str());
         }
     }
 

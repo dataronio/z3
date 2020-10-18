@@ -17,12 +17,12 @@ Notes:
 
 --*/
 #include "ast/rewriter/array_rewriter.h"
-#include "ast/rewriter/array_rewriter_params.hpp"
 #include "ast/ast_lt.h"
 #include "ast/ast_util.h"
 #include "ast/ast_pp.h"
 #include "ast/ast_ll_pp.h"
 #include "ast/rewriter/var_subst.h"
+#include "params/array_rewriter_params.hpp"
 
 void array_rewriter::updt_params(params_ref const & _p) {
     array_rewriter_params p(_p);
@@ -196,7 +196,7 @@ br_status array_rewriter::mk_select_core(unsigned num_args, expr * const * args,
                     return BR_REWRITE2;
                 }
                 else {
-                    result = m().mk_ite(m().mk_and(eqs.size(), eqs.c_ptr()), v, sel_a_j);
+                    result = m().mk_ite(m().mk_and(eqs), v, sel_a_j);
                     return BR_REWRITE3;
                 }
             }
@@ -653,8 +653,11 @@ bool array_rewriter::is_expandable_store(expr* s) {
 }
 
 expr_ref array_rewriter::expand_store(expr* s) {
+    sort* srt = m().get_sort(s);    
+    unsigned arity = get_array_arity(srt);
     ptr_vector<app> stores;
-    expr_ref result(m());
+    expr_ref result(m()), tmp(m());
+    var_shifter sh(m());
     while (m_util.is_store(s)) {
         stores.push_back(to_app(s));
         s = to_app(s)->get_arg(0);
@@ -663,9 +666,9 @@ expr_ref array_rewriter::expand_store(expr* s) {
     expr_ref_vector args(m()), eqs(m());
     ptr_vector<sort> sorts;
     svector<symbol> names;
-    sort* srt = m().get_sort(s);    
-    args.push_back(s);
-    for (unsigned i = get_array_arity(srt); i-- > 0; ) {
+    sh(s, arity, tmp);
+    args.push_back(tmp);
+    for (unsigned i = arity; i-- > 0; ) {
         args.push_back(m().mk_var(i, get_array_domain(srt, i)));
         sorts.push_back(get_array_domain(srt, i));
         names.push_back(symbol(i));
@@ -676,9 +679,11 @@ expr_ref array_rewriter::expand_store(expr* s) {
     for (app* st : stores) {
         eqs.reset();
         for (unsigned i = 1; i < args.size(); ++i) {
-            eqs.push_back(m().mk_eq(args.get(i), st->get_arg(i)));
+            sh(st->get_arg(i), arity, tmp);
+            eqs.push_back(m().mk_eq(args.get(i), tmp));
         }
-        result = m().mk_ite(mk_and(eqs), st->get_arg(args.size()), result);
+        sh(st->get_arg(args.size()), arity, tmp);
+        result = m().mk_ite(mk_and(eqs), tmp, result);
     }
     result = m().mk_lambda(sorts.size(), sorts.c_ptr(), names.c_ptr(), result);
     return result;
@@ -686,15 +691,28 @@ expr_ref array_rewriter::expand_store(expr* s) {
 
 br_status array_rewriter::mk_eq_core(expr * lhs, expr * rhs, expr_ref & result) {
     TRACE("array_rewriter", tout << mk_bounded_pp(lhs, m(), 2) << " " << mk_bounded_pp(rhs, m(), 2) << "\n";);
-    expr* v = nullptr;
+    expr* v = nullptr, *w = nullptr;
     if (m_util.is_const(rhs) && is_lambda(lhs)) {
         std::swap(lhs, rhs);
+    }
+    if (m_util.is_const(rhs) && m_util.is_store(lhs)) {
+        std::swap(lhs, rhs);
+    }
+    if (m_util.is_const(lhs, v) && m_util.is_const(rhs, w)) {
+        result = m().mk_eq(v, w);
+        return BR_REWRITE1;
     }
     if (m_util.is_const(lhs, v) && is_lambda(rhs)) {
         quantifier* lam = to_quantifier(rhs);
         expr_ref e(m().mk_eq(lam->get_expr(), v), m());
         result = m().update_quantifier(lam, quantifier_kind::forall_k, e);
         return BR_REWRITE2; 
+    }
+    if (m_util.is_const(lhs, v) && m_util.is_store(rhs)) {
+        expr_ref eq1(m().mk_eq(v, to_app(rhs)->get_arg(to_app(rhs)->get_num_args()-1)), m());
+	expr_ref eq2(m().mk_eq(lhs, to_app(rhs)->get_arg(0)), m());
+	result = m().mk_and(eq1, eq2);
+	return BR_REWRITE3;
     }
     expr_ref lh1(m()), rh1(m());
     if (m_expand_nested_stores) {
@@ -738,19 +756,45 @@ br_status array_rewriter::mk_eq_core(expr * lhs, expr * rhs, expr_ref & result) 
 #endif
 
     expr* lhs1 = lhs;
+    unsigned num_lhs = 0, num_rhs = 0;
     while (m_util.is_store(lhs1)) {
         lhs1 = to_app(lhs1)->get_arg(0);
+        ++num_lhs;
     }
     expr* rhs1 = rhs;
     while (m_util.is_store(rhs1)) {
         rhs1 = to_app(rhs1)->get_arg(0);
+        ++num_rhs;
     }
-    if (lhs1 != rhs1) {
-        return BR_FAILED;
+    if (lhs1 == rhs1) {
+        mk_eq(lhs, lhs, rhs, fmls);
+        mk_eq(rhs, lhs, rhs, fmls);
+        result = m().mk_and(fmls);
+        return BR_REWRITE_FULL;
     }
-
-    mk_eq(lhs, lhs, rhs, fmls);
-    mk_eq(rhs, lhs, rhs, fmls);
-    result = m().mk_and(fmls.size(), fmls.c_ptr());
-    return BR_REWRITE_FULL;
+    auto has_large_domain = [&](sort* s, unsigned num_stores) {
+        unsigned sz = get_array_arity(s);
+        uint64_t dsz = 1;
+        for (unsigned i = 0; i < sz; ++i) {
+            sort* d = get_array_domain(s, i);
+            if (d->is_infinite() || d->is_very_big())
+                return true;
+            auto const& n = d->get_num_elements();
+            if (n.size() > num_stores)
+                return true;
+            dsz *= n.size();
+            if (dsz > num_stores)
+                return true;
+        }
+        return false;        
+    };
+    if (m_util.is_const(lhs1, v) && m_util.is_const(rhs1, w) &&
+        has_large_domain(m().get_sort(lhs), std::max(num_lhs, num_rhs))) {
+        mk_eq(lhs, lhs, rhs, fmls);
+        mk_eq(rhs, lhs, rhs, fmls);
+        fmls.push_back(m().mk_eq(v, w));
+        result = m().mk_and(fmls);
+        return BR_REWRITE_FULL;
+    }
+    return BR_FAILED;    
 }

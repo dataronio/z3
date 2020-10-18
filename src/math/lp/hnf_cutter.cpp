@@ -50,7 +50,7 @@ namespace lp  {
         m_constraints_for_explanation.push_back(ci);
        
         for (const auto &p : *t) {
-            m_var_register.add_var(p.var());
+            m_var_register.add_var(p.column().index(), true); // hnf only deals with integral variables for now
             mpq t = abs(ceil(p.coeff()));
             if (t > m_abs_max)
                 m_abs_max = t;
@@ -63,7 +63,7 @@ namespace lp  {
 
     void hnf_cutter::initialize_row(unsigned i) {
         mpq sign = m_terms_upper[i]? one_of_type<mpq>(): - one_of_type<mpq>();
-        m_A.init_row_from_container(i, * m_terms[i], [this](unsigned j) { return m_var_register.add_var(j);}, sign);
+        m_A.init_row_from_container(i, * m_terms[i], [this](unsigned j) { return m_var_register.add_var(j, true);}, sign);// hnf only deals with integral variables for now
     }
 
     void hnf_cutter::init_matrix_A() {
@@ -154,11 +154,36 @@ namespace lp  {
     }
 
     bool hnf_cutter::overflow() const { return m_overflow; }
-    
-    lia_move hnf_cutter::create_cut(lar_term& t, mpq& k, explanation* ex, bool & upper, const vector<mpq> & x0) {
-        // we suppose that x0 has at least one non integer element 
-        (void)x0;
+/*
+  Here is the citation from "Cutting the Mix" by Jürgen Christ and Jochen Hoenicke.
 
+  The algorithm is based on the Simplex algorithm. The solution space
+  forms a polyhedron in Q^n . If the solution space is non-empty, the
+  Simplex algorithm returns a solution of Ax <= b . We further assume
+  that the returned solution x0 is a vertex of the polyhedron, i. e.,
+  there is a nonsingular square submatrix A′ and a corresponding
+  vector b′ , such that A′x0=b′ . We call A′x <=b′ the defining
+  constraints of the vertex. If the returned solution is not on a
+  vertex we introduce artificial branches on input variables into A
+  and use these branches as defining constraints. These branches are
+  rarely needed in practise.
+
+The main idea is to bring the constraint system A′x<=b′ into a Hermite
+normal form H and to compute the unimodular matrix U with A′U=H . The
+Hermite normal form is uniquely defined. The constraint system A′x<=b′
+is equivalent to Hy <=b′ with y:=(U−1)x . Since the solution x0 of
+A′x0=b′ is not integral, the corresponding vector y0=(U−1)x0 is not
+integral, either. The cuts from proofs algorithm creates an extended
+branch on one of the components y_i of y , i. e., y_i <= floor(y0_i) or
+y_i>=ceil(y0_i).  Further on in the paper there is a lemma showing that
+branch y_i >= ceil(y0_i) is impossible.
+ */
+    lia_move hnf_cutter::create_cut(lar_term& t, mpq& k, explanation* ex, bool & upper
+#ifdef Z3DEBUG
+                                    , const vector<mpq> & x0
+                                    // we suppose that x0 has at least one non integer element 
+#endif                                                                                                            
+                                    ) {
         init_matrix_A();
         svector<unsigned> basis_rows;
         mpq big_number = m_abs_max.expt(3);
@@ -179,7 +204,10 @@ namespace lp  {
         
         hnf<general_matrix> h(m_A, d);        
         vector<mpq> b = create_b(basis_rows);
+#ifdef Z3DEBUG
         lp_assert(m_A * x0 == b);
+#endif
+
         find_h_minus_1_b(h.W(), b);
         int cut_row = find_cut_row_index(b);
 
@@ -201,13 +229,13 @@ namespace lp  {
 
     svector<unsigned> hnf_cutter::vars() const { return m_var_register.vars(); }
 
-    void hnf_cutter::try_add_term_to_A_for_hnf(unsigned i) {
+    void hnf_cutter::try_add_term_to_A_for_hnf(tv const &i) {
         mpq rs;
-        const lar_term* t = lra.terms()[i];
+        const lar_term& t = lra.get_term(i);
         constraint_index ci;
         bool upper_bound;
         if (!is_full() && lra.get_equality_and_right_side_for_term_on_current_x(i, rs, ci, upper_bound)) {
-            add_term(t, rs, ci, upper_bound);
+            add_term(&t, rs, ci, upper_bound);
         }
     }
 
@@ -221,7 +249,7 @@ namespace lp  {
     bool hnf_cutter::init_terms_for_hnf_cut() {
         clear();
         for (unsigned i = 0; i < lra.terms().size() && !is_full(); i++) {
-            try_add_term_to_A_for_hnf(i);
+            try_add_term_to_A_for_hnf(tv::term(i));
         }
         return hnf_has_var_with_non_integral_value();
     }
@@ -238,11 +266,13 @@ namespace lp  {
               tout << lra.constraints();
               );
 #ifdef Z3DEBUG
-        vector<mpq> x0 = transform_to_local_columns(lra.m_mpq_lar_core_solver.m_r_x);
-#else
-        vector<mpq> x0;
+        vector<mpq> x0 = transform_to_local_columns(lra.r_x());
 #endif
-        lia_move r =  create_cut(lia.m_t, lia.m_k, lia.m_ex, lia.m_upper, x0);
+        lia_move r =  create_cut(lia.m_t, lia.m_k, lia.m_ex, lia.m_upper
+#ifdef Z3DEBUG
+                                 , x0
+#endif
+                                 );
 
         if (r == lia_move::cut) {      
             TRACE("hnf_cut",
@@ -256,7 +286,7 @@ namespace lp  {
             lia.settings().stats().m_hnf_cuts++;
             lia.m_ex->clear();        
             for (unsigned i : constraints_for_explanation()) {
-                lia.m_ex->push_justification(i);
+                lia.m_ex->push_back(i);
             }
         } 
         return r;

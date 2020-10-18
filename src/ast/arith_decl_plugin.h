@@ -16,8 +16,7 @@ Author:
 Revision History:
 
 --*/
-#ifndef ARITH_DECL_PLUGIN_H_
-#define ARITH_DECL_PLUGIN_H_
+#pragma once
 
 #include "ast/ast.h"
 class sexpr;
@@ -196,7 +195,7 @@ public:
 
     app * mk_numeral(rational const & n, bool is_int);
 
-    app * mk_numeral(algebraic_numbers::anum const & val, bool is_int);
+    app * mk_numeral(algebraic_numbers::manager& m, algebraic_numbers::anum const & val, bool is_int);
 
     // Create a (real) numeral that is the i-th root of the polynomial encoded using the given sexpr.
     app * mk_numeral(sexpr const * p, unsigned i);
@@ -306,14 +305,29 @@ public:
     bool is_sin(expr const* n) const { return is_app_of(n, m_afid, OP_SIN); }
     bool is_cos(expr const* n) const { return is_app_of(n, m_afid, OP_COS); }
     bool is_tan(expr const* n) const { return is_app_of(n, m_afid, OP_TAN); }
+    bool is_tanh(expr const* n) const { return is_app_of(n, m_afid, OP_TANH); }
     bool is_asin(expr const* n) const { return is_app_of(n, m_afid, OP_ASIN); }
     bool is_acos(expr const* n) const { return is_app_of(n, m_afid, OP_ACOS); }
     bool is_atan(expr const* n) const { return is_app_of(n, m_afid, OP_ATAN); }
     bool is_asinh(expr const* n) const { return is_app_of(n, m_afid, OP_ASINH); }
     bool is_acosh(expr const* n) const { return is_app_of(n, m_afid, OP_ACOSH); }
     bool is_atanh(expr const* n) const { return is_app_of(n, m_afid, OP_ATANH); }
-    bool is_pi(expr * arg) { return is_app_of(arg, m_afid, OP_PI); }
-    bool is_e(expr * arg) { return is_app_of(arg, m_afid, OP_E); }
+    bool is_pi(expr const * arg) const { return is_app_of(arg, m_afid, OP_PI); }
+    bool is_e(expr const * arg) const { return is_app_of(arg, m_afid, OP_E); }
+    bool is_non_algebraic(expr const* n) const {
+        return is_sin(n) ||
+            is_cos(n) ||
+            is_tan(n) ||
+            is_tanh(n) || 
+            is_asin(n) ||
+            is_acos(n) ||
+            is_atan(n) ||
+            is_asinh(n) ||
+            is_acosh(n) ||
+            is_atanh(n) ||
+            is_e(n) ||
+            is_pi(n);
+    }
 
     MATCH_UNARY(is_uminus);
     MATCH_UNARY(is_to_real);
@@ -350,16 +364,16 @@ class arith_util : public arith_recognizers {
 
     void init_plugin();
 
+public:
+    arith_util(ast_manager & m);
+
+    ast_manager & get_manager() const { return m_manager; }
+
     arith_decl_plugin & plugin() const {
         if (!m_plugin) const_cast<arith_util*>(this)->init_plugin();
         SASSERT(m_plugin != 0);
         return *m_plugin;
     }
-
-public:
-    arith_util(ast_manager & m);
-
-    ast_manager & get_manager() const { return m_manager; }
 
     algebraic_numbers::manager & am() {
         return plugin().am();
@@ -387,8 +401,8 @@ public:
         SASSERT(is_int(s) || is_real(s));
         return mk_numeral(val, is_int(s));
     }
-    app * mk_numeral(algebraic_numbers::anum const & val, bool is_int) {
-        return plugin().mk_numeral(val, is_int);
+    app * mk_numeral(algebraic_numbers::manager& m, algebraic_numbers::anum const & val, bool is_int) {
+        return plugin().mk_numeral(m, val, is_int);
     }
     app * mk_numeral(sexpr const * p, unsigned i) {
         return plugin().mk_numeral(p, i);
@@ -480,6 +494,12 @@ public:
     expr_ref mk_add_simplify(unsigned sz, expr* const* args);
 
     bool is_considered_uninterpreted(func_decl* f, unsigned n, expr* const* args, func_decl_ref& f_out);
+
+    bool is_underspecified(expr* e) const;
+
+    bool is_bounded(expr* e) const;
+
+    bool is_extended_numeral(expr* e, rational& r) const;
 
 };
 
@@ -581,5 +601,4 @@ inline app_ref operator>(app_ref const& x, app_ref const& y) {
     return app_ref(a.mk_gt(x, y), x.get_manager());
 }
 
-#endif /* ARITH_DECL_PLUGIN_H_ */
 

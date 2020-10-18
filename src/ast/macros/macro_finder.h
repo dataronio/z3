@@ -16,8 +16,7 @@ Author:
 Revision History:
 
 --*/
-#ifndef MACRO_FINDER_H_
-#define MACRO_FINDER_H_
+#pragma once
 
 #include "ast/macros/macro_manager.h"
 
@@ -36,7 +35,7 @@ class macro_finder {
     bool expand_macros(unsigned n, justified_expr const * fmls, vector<justified_expr>& new_fmls);
     bool is_arith_macro(expr * n, proof * pr, expr_ref_vector & new_exprs, proof_ref_vector & new_prs);
     bool is_arith_macro(expr * n, proof * pr, vector<justified_expr>& new_fmls);
-    bool is_arith_macro(expr * n, proof * pr, expr_dependency * dep, expr_ref_vector & new_exprs, proof_ref_vector & new_prs, expr_dependency_ref_vector & new_deps);
+    bool is_arith_macro(expr * n, proof * pr, bool deps_valid, expr_dependency * dep, expr_ref_vector & new_exprs, proof_ref_vector & new_prs, expr_dependency_ref_vector & new_deps);
 
     bool is_macro(expr * n, app_ref & head, expr_ref & def);
 
@@ -47,5 +46,4 @@ public:
     void operator()(unsigned n, justified_expr const* fmls, vector<justified_expr>& new_fmls);
 };
 
-#endif /* MACRO_FINDER_H_ */
 

@@ -16,8 +16,7 @@ Author:
 Revision History:
 
 --*/
-#ifndef SMT_QUANTIFIER_H_
-#define SMT_QUANTIFIER_H_
+#pragma once
 
 #include "ast/ast.h"
 #include "util/statistics.h"
@@ -31,17 +30,19 @@ struct smt_params;
 namespace smt {
     class quantifier_manager_plugin;
     class quantifier_stat;
+    class context;
 
     class quantifier_manager {
         struct imp;
         imp *                       m_imp;
+        unsigned                    m_lazy_scopes;
+        bool                        m_lazy;
+        void flush();
     public:
         quantifier_manager(context & ctx, smt_params & fp, params_ref const & p);
         ~quantifier_manager();
 
         context & get_context() const;
-
-        void set_plugin(quantifier_manager_plugin * plugin);
 
         void add(quantifier * q, unsigned generation);
         void del(quantifier * q);
@@ -179,4 +180,3 @@ namespace smt {
     };
 };
 
-#endif

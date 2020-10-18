@@ -158,26 +158,36 @@ struct evaluator_cfg : public default_rewriter_cfg {
     br_status reduce_app_core(func_decl * f, unsigned num, expr * const * args, expr_ref & result, proof_ref & result_pr) {
         result_pr = nullptr;
         family_id fid = f->get_family_id();
-        bool is_uninterp = fid != null_family_id && m.get_plugin(fid)->is_considered_uninterpreted(f);
+        bool _is_uninterp = fid != null_family_id && m.get_plugin(fid)->is_considered_uninterpreted(f);
         br_status st = BR_FAILED;
-        if (num == 0 && (fid == null_family_id || is_uninterp)) { // || m_ar.is_as_array(f)
+#if 0
+        struct pp {
+            func_decl* f;
+            expr_ref& r;
+            pp(func_decl* f, expr_ref& r) :f(f), r(r) {}
+            ~pp() { TRACE("model_evaluator", tout << mk_pp(f, r.m()) << " " << r << "\n";); }
+        };
+        pp _pp(f, result);
+#endif
+        if (num == 0 && (fid == null_family_id || _is_uninterp || m_ar.is_as_array(f))) {
             expr * val = m_model.get_const_interp(f);
             if (val != nullptr) {
                 result = val;
-                st = m_ar.is_as_array(val)? BR_REWRITE1 : BR_DONE;
+                st = m_ar.is_as_array(val) ? BR_REWRITE1 : BR_DONE;
                 TRACE("model_evaluator", tout << result << "\n";);
                 return st;
             }
-            else if (m_model_completion) {
+            if (!m_model_completion)
+                return BR_FAILED;
+            
+            if (!m_ar.is_as_array(f)) {
                 sort * s   = f->get_range();
                 expr * val = m_model.get_some_value(s);
                 m_model.register_decl(f, val);
                 result = val;
                 return BR_DONE;
             }
-            else {
-                return BR_FAILED;
-            }
+            // fall through
         }
 
 
@@ -249,6 +259,7 @@ struct evaluator_cfg : public default_rewriter_cfg {
             expr* def = nullptr;
             if (m_def_cache.find(g, def)) {
                 result = def;
+                TRACE("model_evaluator", tout << result << "\n";);
                 return BR_DONE;
             }
             func_interp * fi = m_model.get_func_interp(g);
@@ -281,17 +292,16 @@ struct evaluator_cfg : public default_rewriter_cfg {
                 args.append(stores[i].size(), stores[i].c_ptr());
                 val = m_ar.mk_store(args);
             }
+            TRACE("model_evaluator", tout << val << "\n";);
         }
     }
 
+    bool reduce_macro() { return true; }
+
     bool get_macro(func_decl * f, expr * & def, quantifier * & , proof * &) {
-
-#define TRACE_MACRO TRACE("model_evaluator", tout << "get_macro for " << f->get_name() << " (model completion: " << m_model_completion << ")\n";);
-
         func_interp * fi = m_model.get_func_interp(f);
-
+        def = nullptr;
         if (fi != nullptr) {
-            TRACE_MACRO;
             if (fi->is_partial()) {
                 if (m_model_completion) {
                     sort * s   = f->get_range();
@@ -303,24 +313,22 @@ struct evaluator_cfg : public default_rewriter_cfg {
             }
             def = fi->get_interp();
             SASSERT(def != nullptr);
-            return true;
         }
-
-        if (m_model_completion &&
+        else if (m_model_completion &&
             (f->get_family_id() == null_family_id ||
-             m.get_plugin(f->get_family_id())->is_considered_uninterpreted(f)))
-        {
-            TRACE_MACRO;
+             m.get_plugin(f->get_family_id())->is_considered_uninterpreted(f))) {
             sort * s   = f->get_range();
             expr * val = m_model.get_some_value(s);
             func_interp * new_fi = alloc(func_interp, m, f->get_arity());
             new_fi->set_else(val);
             m_model.register_decl(f, new_fi);
             def = val;
-            return true;
+            SASSERT(def != nullptr);
         }
 
-        return false;
+        CTRACE("model_evaluator", def != nullptr, tout << "get_macro for " << f->get_name() << " (model completion: " << m_model_completion << ") " << mk_pp(def, m) << "\n";);
+
+        return def != nullptr;
     }
 
     br_status evaluate_partial_theory_func(func_decl * f,
@@ -559,7 +567,10 @@ struct evaluator_cfg : public default_rewriter_cfg {
 
         func_decl* f = m_ar.get_as_array_func_decl(to_app(a));
         func_interp* g = m_model.get_func_interp(f);
-        if (!g) return false;
+        if (!g) {
+            TRACE("model_evaluator", tout << "no interpretation for " << mk_pp(f, m) << "\n";);
+            return false;
+        }
         else_case = g->get_else();
         if (!else_case) {
             TRACE("model_evaluator", tout << "no else case " << mk_pp(a, m) << "\n";);
@@ -668,8 +679,8 @@ void model_evaluator::reset(model_core &model, params_ref const& p) {
 void model_evaluator::operator()(expr * t, expr_ref & result) {
     TRACE("model_evaluator", tout << mk_ismt2_pp(t, m()) << "\n";);
     m_imp->operator()(t, result);
-    TRACE("model_evaluator", tout << result << "\n";);
     m_imp->expand_stores(result);
+    TRACE("model_evaluator", tout << result << "\n";);
 }
 
 expr_ref model_evaluator::operator()(expr * t) {
@@ -735,4 +746,8 @@ void model_evaluator::set_solver(expr_solver* solver) {
 
 bool model_evaluator::has_solver() {
     return m_imp->m_cfg.m_seq_rw.has_solver();
+}
+
+model_core const & model_evaluator::get_model() const {
+    return m_imp->cfg().m_model;
 }

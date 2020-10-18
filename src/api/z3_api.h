@@ -2,8 +2,7 @@
     Copyright (c) 2015 Microsoft Corporation
 --*/
 
-#ifndef Z3_API_H_
-#define Z3_API_H_
+#pragma once
 
 DEFINE_TYPE(Z3_symbol);
 DEFINE_TYPE(Z3_literals);
@@ -26,6 +25,7 @@ DEFINE_TYPE(Z3_tactic);
 DEFINE_TYPE(Z3_probe);
 DEFINE_TYPE(Z3_stats);
 DEFINE_TYPE(Z3_solver);
+DEFINE_TYPE(Z3_solver_callback);
 DEFINE_TYPE(Z3_ast_vector);
 DEFINE_TYPE(Z3_ast_map);
 DEFINE_TYPE(Z3_apply_result);
@@ -1392,6 +1392,7 @@ typedef enum
   def_Type('CONSTRUCTOR',      'Z3_constructor',      'Constructor')
   def_Type('CONSTRUCTOR_LIST', 'Z3_constructor_list', 'ConstructorList')
   def_Type('SOLVER',           'Z3_solver',           'SolverObj')
+  def_Type('SOLVER_CALLBACK',  'Z3_solver_callback',  'SolverCallbackObj')
   def_Type('GOAL',             'Z3_goal',             'GoalObj')
   def_Type('TACTIC',           'Z3_tactic',           'TacticObj')
   def_Type('PARAMS',           'Z3_params',           'Params')
@@ -1412,6 +1413,17 @@ typedef enum
    \brief Z3 custom error handler (See #Z3_set_error_handler).
 */
 typedef void Z3_error_handler(Z3_context c, Z3_error_code e);
+
+
+/**
+   \brief callback functions for user propagator.
+*/
+typedef void Z3_push_eh(void* ctx);
+typedef void Z3_pop_eh(void* ctx, unsigned num_scopes);
+typedef void* Z3_fresh_eh(void* ctx, Z3_context new_context);
+typedef void Z3_fixed_eh(void* ctx, Z3_solver_callback cb, unsigned id, Z3_ast value);
+typedef void Z3_eq_eh(void* ctx, Z3_solver_callback cb, unsigned x, unsigned y);
+typedef void Z3_final_eh(void* ctx, Z3_solver_callback cb);
 
 /**
    \brief A Goal is essentially a set of formulas.
@@ -4678,13 +4690,23 @@ extern "C" {
     Z3_func_decl Z3_API Z3_to_func_decl(Z3_context c, Z3_ast a);
 
     /**
-       \brief Return numeral value, as a string of a numeric constant term
+       \brief Return numeral value, as a decimal string of a numeric constant term
 
        \pre Z3_get_ast_kind(c, a) == Z3_NUMERAL_AST
 
        def_API('Z3_get_numeral_string', STRING, (_in(CONTEXT), _in(AST)))
     */
     Z3_string Z3_API Z3_get_numeral_string(Z3_context c, Z3_ast a);
+
+    /**
+       \brief Return numeral value, as a binary string of a numeric constant term
+
+       \pre Z3_get_ast_kind(c, a) == Z3_NUMERAL_AST
+       \pre a represents a non-negative integer
+
+       def_API('Z3_get_numeral_binary_string', STRING, (_in(CONTEXT), _in(AST)))
+    */
+    Z3_string Z3_API Z3_get_numeral_binary_string(Z3_context c, Z3_ast a);
 
     /**
        \brief Return numeral as a string in decimal notation.
@@ -5558,7 +5580,7 @@ extern "C" {
     */
 
     Z3_string Z3_API Z3_eval_smtlib2_string(Z3_context, Z3_string str);
-    
+
     /*@}*/
 
     /** @name Error Handling */
@@ -5818,9 +5840,9 @@ extern "C" {
        preserve satisfiability, it should apply bit-blasting tactics.
        Quantifiers and theory atoms will not be encoded.
 
-       def_API('Z3_goal_to_dimacs_string', STRING, (_in(CONTEXT), _in(GOAL)))
+       def_API('Z3_goal_to_dimacs_string', STRING, (_in(CONTEXT), _in(GOAL), _in(BOOL)))
     */
-    Z3_string Z3_API Z3_goal_to_dimacs_string(Z3_context c, Z3_goal g);
+    Z3_string Z3_API Z3_goal_to_dimacs_string(Z3_context c, Z3_goal g, bool include_names);
 
     /*@}*/
 
@@ -6477,6 +6499,69 @@ extern "C" {
     */
     void Z3_API Z3_solver_get_levels(Z3_context c, Z3_solver s, Z3_ast_vector literals, unsigned sz,  unsigned levels[]);
 
+
+    /**
+       \brief register a user-properator with the solver.
+     */
+
+    void Z3_API Z3_solver_propagate_init(
+        Z3_context  c, 
+        Z3_solver   s, 
+        void*       user_context,
+        Z3_push_eh  push_eh,
+        Z3_pop_eh   pop_eh,
+        Z3_fresh_eh fresh_eh);
+
+    /**
+       \brief register a callback for when an expression is bound to a fixed value.
+       The supported expression types are
+       - Booleans
+       - Bit-vectors
+     */
+
+    void Z3_API Z3_solver_propagate_fixed(Z3_context c, Z3_solver s, Z3_fixed_eh fixed_eh);
+
+    /**
+       \brief register a callback on final check.
+       This provides freedom to the propagator to delay actions or implement a branch-and bound solver.
+
+       The final_eh callback takes as argument the original user_context that was used
+       when calling \c Z3_solver_propagate_init, and it takes a callback context for propagations.
+       If may use the callback context to invoke the \c Z3_solver_propagate_consequence function.
+       If the callback context gets used, the solver continues. 
+     */
+    void Z3_API Z3_solver_propagate_final(Z3_context c, Z3_solver s, Z3_final_eh final_eh);
+    
+    /**
+       \brief register a callback on expression equalities.
+    */
+    void Z3_API Z3_solver_propagate_eq(Z3_context c, Z3_solver s, Z3_eq_eh eq_eh);
+
+    /**
+       \brief register a callback on expression dis-equalities.
+    */
+    void Z3_API Z3_solver_propagate_diseq(Z3_context c, Z3_solver s, Z3_eq_eh eq_eh);
+
+    /**
+       \brief register an expression to propagate on with the solver.
+       Only expressions of type Bool and type Bit-Vector can be registered for propagation.
+
+       def_API('Z3_solver_propagate_register', UINT, (_in(CONTEXT), _in(SOLVER), _in(AST)))
+    */
+
+    unsigned Z3_API Z3_solver_propagate_register(Z3_context c, Z3_solver s, Z3_ast e);   
+
+    /**
+       \brief propagate a consequence based on fixed values.
+       This is a callback a client may invoke during the fixed_eh callback. 
+       The callback adds a propagation consequence based on the fixed values of the
+       \c ids. 
+       
+       def_API('Z3_solver_propagate_consequence', VOID, (_in(CONTEXT), _in(SOLVER_CALLBACK), _in(UINT), _in_array(2, UINT), _in(UINT), _in_array(4, UINT), _in_array(4, UINT), _in(AST)))
+    */
+    
+    void Z3_API Z3_solver_propagate_consequence(Z3_context c, Z3_solver_callback, unsigned num_fixed, unsigned const* fixed_ids, unsigned num_eqs, unsigned const* eq_lhs, unsigned const* eq_rhs, Z3_ast conseq);
+
     /**
        \brief Check whether the assertions in a given solver are consistent or not.
 
@@ -6730,4 +6815,3 @@ extern "C" {
 
 /*@}*/
 
-#endif

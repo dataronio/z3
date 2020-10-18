@@ -27,8 +27,7 @@ Author:
 Revision History:
 
 --*/
-#ifndef FUNC_INTERP_H_
-#define FUNC_INTERP_H_
+#pragma once
 
 #include "ast/ast.h"
 #include "ast/ast_translation.h"
@@ -79,7 +78,7 @@ class func_interp {
 
     expr * get_interp_core() const;
 
-    expr * get_array_interp_core(func_decl * f) const;
+    expr_ref get_array_interp_core(func_decl * f) const;
 
 public:
     func_interp(ast_manager & m, unsigned arity);
@@ -116,7 +115,7 @@ public:
 
     expr * get_interp() const;
 
-    expr * get_array_interp(func_decl* f) const;
+    expr_ref get_array_interp(func_decl* f) const;
 
     func_interp * translate(ast_translation & translator) const;
 
@@ -125,4 +124,3 @@ private:
     bool is_identity() const;
 };
 
-#endif

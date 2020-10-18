@@ -65,8 +65,12 @@ namespace qe {
             DEBUG_CODE(expr_ref val(m); 
                        eval(lit, val); 
                        CTRACE("qe", !m.is_true(val), tout << mk_pp(lit, m) << " := " << val << "\n";);
-                       SASSERT(m.is_true(val)););
+                       SASSERT(m.limit().is_canceled() || !m.is_false(val)););
 
+            if (!m.inc()) 
+                return false;
+            
+            TRACE("opt", tout << mk_pp(lit, m) << " " << a.is_lt(lit) << " " << a.is_gt(lit) << "\n";);
             bool is_not = m.is_not(lit, lit);
             if (is_not) {
                 mul.neg();
@@ -205,7 +209,9 @@ namespace qe {
             else if (a.is_mod(t, t1, t2) && is_numeral(t2, mul1) && !mul1.is_zero()) {
                 rational r;
                 val = eval(t);
-                VERIFY(a.is_numeral(val, r));
+                if (!a.is_numeral(val, r)) {
+                    throw default_exception("mbp evaluation didn't produce an integer");
+                }
                 c += mul*r;
                 // t1 mod mul1 == r               
                 rational c0(-r), mul0(1);
@@ -307,7 +313,7 @@ namespace qe {
             }
             model_evaluator eval(model);
             TRACE("qe", tout << model;);
-            // eval.set_model_completion(true);
+            eval.set_model_completion(true);
 
             opt::model_based_opt mbo;
             obj_map<expr, unsigned> tids;
@@ -341,7 +347,10 @@ namespace qe {
                 if (is_arith(v) && !tids.contains(v)) {
                     rational r;
                     expr_ref val = eval(v);
-                    VERIFY(a.is_numeral(val, r));
+                    if (!m.inc())
+                        return vector<def>();
+                    if (!a.is_numeral(val, r))
+                        throw default_exception("evaluation did not produce a numeral");
                     TRACE("qe", tout << mk_pp(v, m) << " " << val << "\n";);
                     tids.insert(v, mbo.add_var(r, a.is_int(v)));
                 }
@@ -560,7 +569,11 @@ namespace qe {
                 if (!tids.find(v, id)) {
                     rational r;
                     expr_ref val = eval(v);
-                    a.is_numeral(val, r);
+                    if (!a.is_numeral(val, r)) {
+                        TRACE("qe", tout << eval.get_model() << "\n";);
+
+                        throw default_exception("mbp evaluation was only partial");
+                    }
                     id = mbo.add_var(r, a.is_int(v));
                     tids.insert(v, id);
                 }

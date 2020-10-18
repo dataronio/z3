@@ -1,21 +1,10 @@
 /*++
   Copyright (c) 2017 Microsoft Corporation
 
-  Module Name:
-
-  <name>
-
-  Abstract:
-
-  <abstract>
-
   Author:
-  Lev Nachmanson (levnach)
+    Lev Nachmanson (levnach)
+--*/
 
-  Revision History:
-
-
-  --*/
 #pragma once
 #include <initializer_list>
 #include "math/lp/nla_defs.h"
@@ -118,7 +107,7 @@ public:
     
     lpvar var() const {  return m_j; }
 
-    std::ostream & print(std::ostream& out) const override { return out << "v" << m_j; }    
+    std::ostream & print(std::ostream& out) const override { return out << "j" << m_j; }    
     expr_type type() const override { return expr_type::VAR; }
     unsigned number_of_child_powers() const override { return 1; }
     bool contains(lpvar j) const override { return j == m_j; }

@@ -85,6 +85,7 @@ namespace sat {
         }
         
         m_burst_search    = p.burst_search();
+        m_enable_pre_simplify  = p.enable_pre_simplify();
         
         m_max_conflicts   = p.max_conflicts();
         m_num_threads     = p.threads();
@@ -98,9 +99,8 @@ namespace sat {
         else
             m_local_search_mode = local_search_mode::wsat;
         m_local_search_dbg_flips = p.local_search_dbg_flips();
-        m_unit_walk       = p.unit_walk();
-        m_unit_walk_threads = p.unit_walk_threads();
-        m_binspr            = p.binspr();
+        //m_binspr            = p.binspr();
+        m_binspr            = false;     // prevent adventurous users from trying feature that isn't ready
         m_anf_simplify      = p.anf();
         m_anf_delay         = p.anf_delay();
         m_anf_exlin         = p.anf_exlin();
@@ -109,7 +109,9 @@ namespace sat {
         m_cut_aig           = p.cut_aig();
         m_cut_lut           = p.cut_lut();
         m_cut_xor           = p.cut_xor();
+        m_cut_npn3          = p.cut_npn3();
         m_cut_dont_cares    = p.cut_dont_cares();
+        m_cut_redundancies  = p.cut_redundancies();
         m_cut_force         = p.cut_force();
         m_lookahead_simplify = p.lookahead_simplify();
         m_lookahead_double = p.lookahead_double();
@@ -201,10 +203,8 @@ namespace sat {
             m_branching_heuristic = BH_VSIDS;
         else if (p.branching_heuristic() == symbol("chb")) 
             m_branching_heuristic = BH_CHB;
-        else if (p.branching_heuristic() == symbol("lrb")) 
-            m_branching_heuristic = BH_LRB;
         else 
-            throw sat_param_exception("invalid branching heuristic: accepted heuristics are 'vsids', 'lrb' or 'chb'");
+            throw sat_param_exception("invalid branching heuristic: accepted heuristics are 'vsids' or 'chb'");
 
         m_anti_exploration = p.branching_anti_exploration();
         m_step_size_init = 0.40;
@@ -243,10 +243,15 @@ namespace sat {
             throw sat_param_exception("invalid PB lemma format: 'cardinality' or 'pb' expected");
         
         m_card_solver = p.cardinality_solver();
-        m_xor_solver = p.xor_solver();
+        m_xor_solver = false; // prevent users from playing with this option
 
         sat_simplifier_params sp(_p);
         m_elim_vars = sp.elim_vars();
+
+#if 0
+        if (m_drat && (m_xor_solver || m_card_solver)) 
+            throw sat_param_exception("DRAT checking only works for pure CNF");
+#endif
     }
 
     void config::collect_param_descrs(param_descrs & r) {

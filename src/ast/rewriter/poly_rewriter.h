@@ -16,8 +16,7 @@ Author:
 Notes:
 
 --*/
-#ifndef POLY_REWRITER_H_
-#define POLY_REWRITER_H_
+#pragma once
 
 #include "ast/ast.h"
 #include "util/obj_hashtable.h"
@@ -35,7 +34,6 @@ protected:
     unsigned                m_som_blowup;
     bool                    m_sort_sums;
     bool                    m_hoist_mul;
-    bool                    m_hoist_cmul;
     bool                    m_ast_order;
     bool                    m_hoist_ite;
 
@@ -88,9 +86,7 @@ protected:
     bool hoist_multiplication(expr_ref& som);
     expr* merge_muls(expr* x, expr* y);
 
-    struct hoist_cmul_lt;
     bool is_mul(expr * t, numeral & c, expr * & pp);
-    void hoist_cmul(expr_ref_buffer & args);
 
     class mon_lt {
         poly_rewriter& rw;
@@ -179,4 +175,3 @@ public:
 };
 
 
-#endif

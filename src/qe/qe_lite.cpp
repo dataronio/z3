@@ -682,8 +682,7 @@ namespace qel {
         }
 
         void checkpoint() {
-            if (m.canceled())
-                throw tactic_exception(m.limit().get_cancel_msg());
+            tactic::checkpoint(m);
         }
 
     public:
@@ -870,8 +869,7 @@ namespace qel {
         }
 
         void checkpoint() {
-            if (m.canceled())
-                throw tactic_exception(m.limit().get_cancel_msg());
+            tactic::checkpoint(m);
     }
 
     public:
@@ -2144,8 +2142,7 @@ namespace fm {
         }
 
         void checkpoint() {
-            if (m.canceled())
-                throw tactic_exception(m.limit().get_cancel_msg());
+            tactic::checkpoint(m);
         }
     public:
 
@@ -2241,11 +2238,16 @@ class qe_lite::impl {
             if (is_forall(q)) {
                 result = push_not(result);
             }
-            result = m.update_quantifier(
+            expr_ref tmp(m);
+            tmp = m.update_quantifier(
                 q,
                 q->get_num_patterns(), new_patterns,
                 q->get_num_no_patterns(), new_no_patterns, result);
-            m_imp.m_rewriter(result);
+            m_imp.m_rewriter(tmp, result, result_pr);
+            if (m.proofs_enabled()) {
+                result_pr = m.mk_transitivity(m.mk_rewrite(q, tmp), result_pr);
+            }
+
             return true;
         }
     };
@@ -2254,7 +2256,7 @@ class qe_lite::impl {
         elim_cfg m_cfg;
     public:
         elim_star(impl& i):
-            rewriter_tpl<elim_cfg>(i.m, false, m_cfg),
+            rewriter_tpl<elim_cfg>(i.m, i.m.proofs_enabled(), m_cfg),
             m_cfg(i)
         {}
     };
@@ -2336,6 +2338,9 @@ public:
     void operator()(expr_ref& fml, proof_ref& pr) {
         expr_ref tmp(m);
         m_elim_star(fml, tmp, pr);
+        if (m.proofs_enabled()) {
+            pr = m.mk_rewrite(fml, tmp);
+        }
         fml = std::move(tmp);
     }
 
@@ -2409,8 +2414,7 @@ class qe_lite_tactic : public tactic {
     qe_lite                  m_qe;
 
     void checkpoint() {
-        if (m.canceled())
-            throw tactic_exception(m.limit().get_cancel_msg());
+        tactic::checkpoint(m);
     }
 
 #if 0
@@ -2471,7 +2475,6 @@ public:
 
     void operator()(goal_ref const & g,
                     goal_ref_buffer & result) override {
-        SASSERT(g->is_well_sorted());
         tactic_report report("qe-lite", *g);
         proof_ref new_pr(m);
         expr_ref new_f(m);
@@ -2496,14 +2499,12 @@ public:
                 }
             }
             if (f != new_f) {
-                TRACE("qe", tout << mk_pp(f, m) << "\n" << new_f << "\n";);
+                TRACE("qe", tout << mk_pp(f, m) << "\n" << new_f << "\n" << new_pr << "\n";);
                 g->update(i, new_f, new_pr, g->dep(i));
             }
         }
         g->inc_depth();
         result.push_back(g.get());
-        TRACE("qe", g->display(tout););
-        SASSERT(g->is_well_sorted());
     }
 
     void collect_statistics(statistics & st) const override {

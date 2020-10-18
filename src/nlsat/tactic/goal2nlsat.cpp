@@ -104,8 +104,8 @@ struct goal2nlsat::imp {
             ps.push_back(fs[i]);
             is_even.push_back(fs.get_degree(i) % 2 == 0);
         }
-        if (m_qm.is_neg(fs.get_constant()))
-            k = flip(k);
+        if (m_qm.is_neg(fs.get_constant()))             
+            k = flip(k);            
         return m_solver.mk_ineq_atom(k, ps.size(), ps.c_ptr(), is_even.c_ptr());
     }
 
@@ -365,7 +365,7 @@ public:
                 //expr*    x = m_x2t->find(ra->x());
                 std::ostringstream strm;
                 s.display(strm, l.sign()?~l:l);
-                result = m.mk_const(symbol(strm.str().c_str()), m.mk_bool_sort());
+                result = m.mk_const(symbol(strm.str()), m.mk_bool_sort());
             }
         }
 
